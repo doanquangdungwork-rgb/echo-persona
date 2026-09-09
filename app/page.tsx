@@ -5,7 +5,7 @@ import { SignInButton, UserButton, useUser } from '@clerk/nextjs';
 
 type Message = { id: string | number; role: 'user' | 'assistant'; text: string; time: string; delayed?: boolean };
 type Persona = { id?: string; name: string; gender: string; relationship: string; traits: string; style: string; cadenceMin: number; cadenceMax: number; cadenceMode: 'range' | 'instant'; analysis: any };
-type Project = Persona & { screenshotCount: number };
+type Project = Persona & { screenshotCount: number; replyMode?: 'range' | 'instant' };
 type Screenshot = { id: string; url: string; pathname: string; sizeBytes: number; createdAt: string };
 
 const defaults: Persona = { name: 'Alex', gender: 'Male', relationship: 'Ex-partner', traits: 'Warm, slightly teasing, thoughtful', style: 'Casual Vietnamese texting, short messages, lowercase sometimes, natural pauses', cadenceMin: 30, cadenceMax: 600, cadenceMode: 'range', analysis: null };
@@ -188,7 +188,7 @@ export default function Home() {
 
   async function selectProject(project: Project) {
     if (!project.id || project.id === persona.id) return;
-    setPersona({ id: project.id, name: project.name, gender: project.gender, relationship: project.relationship, traits: project.personality, style: project.textingStyle, cadenceMin: project.replyMin, cadenceMax: project.replyMax, cadenceMode: project.replyMode || 'range', analysis: project.dna });
+    setPersona({ id: project.id, name: project.name, gender: project.gender, relationship: project.relationship, traits: project.personality, style: project.textingStyle, cadenceMin: project.replyMin, cadenceMax: project.replyMax, cadenceMode: project.replyMode || project.cadenceMode || 'range', analysis: project.dna });
     setFiles([]); previews.forEach(url => URL.revokeObjectURL(url)); setPreviews([]);
     setAnalysisComplete(project.screenshotCount > 0);
     setError(''); setTab('persona');
