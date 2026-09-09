@@ -15,8 +15,8 @@
     "ai": "latest",
     "drizzle-orm": "latest",
     "next": "latest",
-    "react": "latest",
-    "react-dom": "latest"
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
   },
   "devDependencies": {
     "@types/node": "latest",
