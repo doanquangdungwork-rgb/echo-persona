@@ -23,23 +23,23 @@ async function compressFile(file: File): Promise<File> {
 
     let quality = 0.82;
     let blob: Blob | null = null;
-    while (quality >= 0.48) {
+    while (quality >= 0.36) {
       blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
       if (blob && blob.size <= TARGET_IMAGE_BYTES) break;
       quality -= 0.08;
     }
-    if (!blob) return file;
+    if (!blob || blob.size > MAX_BATCH_BYTES) return file;
     return new File([blob], `${file.name.replace(/\.[^.]+$/, '')}.jpg`, { type: 'image/jpeg', lastModified: Date.now() });
   } catch {
     return file;
   }
 }
 
-async function uploadInBatches(input: RequestInfo | URL, init: RequestInit) {
-  if (typeof init.body === 'string' || !(init.body instanceof FormData)) return window.fetch(input, init);
+async function uploadInBatches(originalFetch: typeof window.fetch, input: RequestInfo | URL, init: RequestInit) {
+  if (typeof init.body === 'string' || !(init.body instanceof FormData)) return originalFetch(input, init);
   const original = init.body;
   const files = Array.from(original.getAll('files')).filter((v): v is File => v instanceof File);
-  if (!files.length) return window.fetch(input, init);
+  if (!files.length) return originalFetch(input, init);
 
   const optimized: File[] = [];
   for (const file of files) optimized.push(await compressFile(file));
@@ -48,6 +48,9 @@ async function uploadInBatches(input: RequestInfo | URL, init: RequestInit) {
   let current: File[] = [];
   let bytes = 0;
   for (const file of optimized) {
+    if (file.size > MAX_BATCH_BYTES) {
+      throw new Error(`${file.name} is still too large after compression. Please use a smaller screenshot.`);
+    }
     const nextBytes = bytes + file.size;
     if (current.length && nextBytes > MAX_BATCH_BYTES) {
       batches.push(current);
@@ -64,7 +67,7 @@ async function uploadInBatches(input: RequestInfo | URL, init: RequestInit) {
   for (const batch of batches) {
     const form = new FormData();
     for (const file of batch) form.append('files', file);
-    const response = await window.fetch(input, { ...init, body: form });
+    const response = await originalFetch(input, { ...init, body: form });
     const raw = await response.text();
     let data: any;
     try { data = raw ? JSON.parse(raw) : {}; } catch { throw new Error(`Upload failed (${response.status}).`); }
@@ -84,7 +87,7 @@ export default function UploadOptimizer() {
     const wrapped = async (input: RequestInfo | URL, init: RequestInit = {}) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes('/api/uploads') && init.body instanceof FormData) {
-        return uploadInBatches(input, init);
+        return uploadInBatches(originalFetch, input, init);
       }
       return originalFetch(input, init);
     };
