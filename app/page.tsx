@@ -4,9 +4,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { SignInButton, UserButton, useUser } from '@clerk/nextjs';
 
 type Message = { id: string | number; role: 'user' | 'assistant'; text: string; time: string; delayed?: boolean };
-type Persona = { id?: string; name: string; gender: string; relationship: string; traits: string; style: string; cadenceMin: number; cadenceMax: number; cadenceMode: 'range' | 'instant'; analysis: any };
-type Project = Persona & { screenshotCount: number; replyMode?: 'range' | 'instant' };
-type Screenshot = { id: string; url: string; pathname: string; sizeBytes: number; createdAt: string };
+type Persona = any;
+type Project = any;
+type Screenshot = any;
 
 const defaults: Persona = { name: 'Alex', gender: 'Male', relationship: 'Ex-partner', traits: 'Warm, slightly teasing, thoughtful', style: 'Casual Vietnamese texting, short messages, lowercase sometimes, natural pauses', cadenceMin: 30, cadenceMax: 600, cadenceMode: 'range', analysis: null };
 
@@ -52,11 +52,8 @@ export default function Home() {
   const chatQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   const cadence = useMemo(() => persona.cadenceMode === 'instant' ? 'Instant' : `${formatDelay(persona.cadenceMin)} — ${formatDelay(persona.cadenceMax)}`, [persona.cadenceMin, persona.cadenceMax, persona.cadenceMode]);
-  const currentProject = projects.find(p => p.id === persona.id);
 
-  useEffect(() => {
-    conversationIdRef.current = conversationId;
-  }, [conversationId]);
+  useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId]);
 
   async function loadProjectAssets(projectId: string) {
     setLoadingProject(true);
@@ -77,11 +74,8 @@ export default function Home() {
         conversationIdRef.current = undefined;
         setMessages([]);
       }
-    } catch (e: any) {
-      setError(e?.message || 'Could not load this Echo project.');
-    } finally {
-      setLoadingProject(false);
-    }
+    } catch (e: any) { setError(e?.message || 'Could not load this Echo project.'); }
+    finally { setLoadingProject(false); }
   }
 
   async function loadProjects(selectFirst = true) {
@@ -90,8 +84,7 @@ export default function Home() {
     setProjects(nextProjects);
     if (selectFirst && nextProjects.length) {
       const first = nextProjects[0];
-      const next: Persona = { id: first.id, name: first.name, gender: first.gender, relationship: first.relationship, traits: first.personality, style: first.textingStyle, cadenceMin: first.replyMin, cadenceMax: first.replyMax, cadenceMode: first.replyMode || 'range', analysis: first.dna };
-      setPersona(next);
+      setPersona({ id: first.id, name: first.name, gender: first.gender, relationship: first.relationship, traits: first.personality, style: first.textingStyle, cadenceMin: first.replyMin, cadenceMax: first.replyMax, cadenceMode: first.replyMode || 'range', analysis: first.dna });
       setAnalysisComplete(first.screenshotCount > 0);
       await loadProjectAssets(first.id!);
     }
@@ -100,20 +93,15 @@ export default function Home() {
   useEffect(() => {
     if (!isSignedIn) return;
     (async () => {
-      try {
-        await loadProjects(true);
-      } catch (e: any) {
-        setError(e?.message || 'Could not load your saved Echo projects.');
-      } finally {
-        setHydrated(true);
-      }
+      try { await loadProjects(true); }
+      catch (e: any) { setError(e?.message || 'Could not load your saved Echo projects.'); }
+      finally { setHydrated(true); }
     })();
   }, [isSignedIn]);
 
   useEffect(() => {
     if (!isSignedIn || !hydrated || !persona.id) return;
-    setSaved(false);
-    setSaving(true);
+    setSaved(false); setSaving(true);
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(async () => {
       try {
@@ -173,34 +161,24 @@ export default function Home() {
       const uploaded = await readJson(await fetch('/api/uploads', { method: 'POST', body: form }));
       const result = await readJson(await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ persona: currentPersona, screenshotIds: uploaded.screenshotIds || [] }) }));
       setPersona(p => ({ ...p, ...result.persona, cadenceMode: result.persona.cadenceMode || p.cadenceMode, analysis: result.persona.analysis }));
-      setFiles([]);
-      previews.forEach(url => URL.revokeObjectURL(url));
-      setPreviews([]);
-      setSaved(true);
-      setAnalysisComplete(true);
-      setTab('persona');
-      await loadProjects(false);
-      await loadProjectAssets(currentPersona.id);
-    } catch (e: any) {
-      setError(e?.message || 'Could not analyze the screenshots.');
-    } finally { setAnalyzing(false); }
+      setFiles([]); previews.forEach(url => URL.revokeObjectURL(url)); setPreviews([]);
+      setSaved(true); setAnalysisComplete(true); setTab('persona');
+      await loadProjects(false); await loadProjectAssets(currentPersona.id);
+    } catch (e: any) { setError(e?.message || 'Could not analyze the screenshots.'); }
+    finally { setAnalyzing(false); }
   }
 
   async function selectProject(project: Project) {
     if (!project.id || project.id === persona.id) return;
     setPersona({ id: project.id, name: project.name, gender: project.gender, relationship: project.relationship, traits: project.personality, style: project.textingStyle, cadenceMin: project.replyMin, cadenceMax: project.replyMax, cadenceMode: project.replyMode || project.cadenceMode || 'range', analysis: project.dna });
     setFiles([]); previews.forEach(url => URL.revokeObjectURL(url)); setPreviews([]);
-    setAnalysisComplete(project.screenshotCount > 0);
-    setError(''); setTab('persona');
+    setAnalysisComplete(project.screenshotCount > 0); setError(''); setTab('persona');
     await loadProjectAssets(project.id);
   }
 
   function startNewProject() {
     setPersona({ ...defaults, id: undefined, analysis: null });
-    setScreenshots([]);
-    setMessages([]);
-    setConversationId(undefined);
-    conversationIdRef.current = undefined;
+    setScreenshots([]); setMessages([]); setConversationId(undefined); conversationIdRef.current = undefined;
     setFiles([]); previews.forEach(url => URL.revokeObjectURL(url)); setPreviews([]);
     setAnalysisComplete(false); setError(''); setSaved(false); setTab('persona');
   }
@@ -222,8 +200,7 @@ export default function Home() {
       await readJson(await fetch(`/api/personas/${id}`, { method: 'DELETE' }));
       const remaining = projects.filter(p => p.id !== id);
       setProjects(remaining);
-      if (remaining.length) await selectProject(remaining[0]);
-      else startNewProject();
+      if (remaining.length) await selectProject(remaining[0]); else startNewProject();
     } catch (e: any) { setError(e?.message || 'Could not delete this project.'); }
   }
 
@@ -232,33 +209,22 @@ export default function Home() {
     chatQueueRef.current = chatQueueRef.current.then(async () => {
       try {
         const d = await readJson(await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: batch, persona, conversationId: conversationIdRef.current }) }));
-        setConversationId(d.conversationId);
-        conversationIdRef.current = d.conversationId;
-        setPersona(p => ({ ...p, id: d.personaId }));
+        setConversationId(d.conversationId); conversationIdRef.current = d.conversationId; setPersona(p => ({ ...p, id: d.personaId }));
         const delay = d.delayMs || 0;
-        window.setTimeout(() => {
-          setMessages(m => [...m, { id: `assistant-${Date.now()}-${Math.random()}`, role: 'assistant', text: d.reply, time: 'just now', delayed: delay > 0 }]);
-          setPendingReplies(n => Math.max(0, n - 1));
-        }, delay);
+        window.setTimeout(() => { setMessages(m => [...m, { id: `assistant-${Date.now()}-${Math.random()}`, role: 'assistant', text: d.reply, time: 'just now', delayed: delay > 0 }]); setPendingReplies(n => Math.max(0, n - 1)); }, delay);
       } catch (e: any) {
         setMessages(m => [...m, { id: `error-${Date.now()}`, role: 'assistant', text: e?.message || 'Something went wrong.', time: 'now' }]);
-        setPendingReplies(n => Math.max(0, n - 1));
-        setError(e?.message || 'Could not connect to the backend.');
+        setPendingReplies(n => Math.max(0, n - 1)); setError(e?.message || 'Could not connect to the backend.');
       }
     });
   }
 
   function send() {
-    const text = input.trim();
-    if (!text) return;
-    setInput(''); setError('');
-    setMessages(m => [...m, { id: `local-${Date.now()}-${Math.random()}`, role: 'user', text, time: 'now' }]);
+    const text = input.trim(); if (!text) return;
+    setInput(''); setError(''); setMessages(m => [...m, { id: `local-${Date.now()}-${Math.random()}`, role: 'user', text, time: 'now' }]);
     outgoingBufferRef.current.push(text);
     if (flushTimerRef.current) window.clearTimeout(flushTimerRef.current);
-    flushTimerRef.current = window.setTimeout(() => {
-      const batch = outgoingBufferRef.current.splice(0, 8);
-      if (batch.length) queueChatRequest(batch);
-    }, 900);
+    flushTimerRef.current = window.setTimeout(() => { const batch = outgoingBufferRef.current.splice(0, 8); if (batch.length) queueChatRequest(batch); }, 900);
   }
 
   if (!isLoaded) return <div className="auth-gate"><div className="auth-card"><div className="brand"><span className="mark">e</span><div><b>echo</b><small>persona studio</small></div></div><p>Loading your studio…</p></div></div>;
@@ -267,31 +233,21 @@ export default function Home() {
   return <main>
     <aside className="sidebar">
       <div className="brand"><span className="mark">e</span><div><b>echo</b><small>persona studio</small></div></div>
-
       <div className="project-head"><div><div className="side-title">Your projects</div><small>Each project keeps its own evidence + memory.</small></div><button type="button" className="new-project" onClick={startNewProject}>+ New</button></div>
       <div className="projects-list">
         {projects.length === 0 && <div className="projects-empty">No saved projects yet.<br />Import a conversation to create one.</div>}
         {projects.map(project => <button type="button" key={project.id} className={`project-row ${project.id === persona.id ? 'active' : ''}`} onClick={() => selectProject(project)}><span className="project-avatar">{project.name[0]?.toUpperCase()}</span><span className="project-copy"><b>{project.name}</b><small>{project.relationship} · {project.screenshotCount} screenshot{project.screenshotCount === 1 ? '' : 's'}</small></span><span className="project-arrow">{project.id === persona.id ? '●' : '›'}</span></button>)}
       </div>
-
       <div className="side-title">{persona.id ? 'Edit project' : 'New project'}</div>
       <div className="upload">
-        <div className="upload-icon">⌁</div>
-        <strong>Conversation evidence</strong>
+        <div className="upload-icon">⌁</div><strong>Conversation evidence</strong>
         <p>Stored inside this project. Add more screenshots anytime to strengthen the persona, or remove old evidence and re-interpret.</p>
         <input type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={e => handleFiles(e.target.files)} />
-        {screenshots.length > 0 && <>
-          <div className="file-count">Stored evidence · {screenshots.length}</div>
-          <div className="stored-previews">{screenshots.map(s => <div className="stored-preview" key={s.id}><img src={`${s.url}?v=${encodeURIComponent(s.createdAt)}`} alt="" /><button type="button" onClick={() => deleteStoredScreenshot(s.id)}>×</button></div>)}</div>
-        </>}
-        {files.length > 0 && <>
-          <div className="file-count">New evidence · {files.length}</div>
-          <div className="file-previews">{previews.map((src, i) => <div className="file-preview" key={src}><img src={src} alt="" /><button type="button" onClick={() => removeFile(i)}>×</button></div>)}</div>
-        </>}
+        {screenshots.length > 0 && <><div className="file-count">Stored evidence · {screenshots.length}</div><div className="stored-previews">{screenshots.map(s => <div className="stored-preview" key={s.id}><img src={`${s.url}?v=${encodeURIComponent(s.createdAt)}`} alt="" /><button type="button" onClick={() => deleteStoredScreenshot(s.id)}>×</button></div>)}</div></>}
+        {files.length > 0 && <><div className="file-count">New evidence · {files.length}</div><div className="file-previews">{previews.map((src, i) => <div className="file-preview" key={src}><img src={src} alt="" /><button type="button" onClick={() => removeFile(i)}>×</button></div>)}</div></>}
         <button className="ghost" disabled={!files.length || analyzing} onClick={analyze}>{analyzing ? 'Interpreting the project…' : files.length ? `Add & interpret ${files.length} screenshot${files.length > 1 ? 's' : ''}` : 'Add screenshots'}</button>
         {analysisComplete && !analyzing && <div className="interpret-done"><span>✓</span><div><b>Project interpreted</b><small>New evidence is part of the persona model.</small></div></div>}
       </div>
-
       <div className="divider" />
       <label>Name<input value={persona.name} onChange={e => updatePersona({ name: e.target.value })} /></label>
       <div className="row"><label>Gender<select value={persona.gender} onChange={e => updatePersona({ gender: e.target.value })}><option>Male</option><option>Female</option><option>Non-binary</option><option>Other</option></select></label><label>Relationship<select value={persona.relationship} onChange={e => updatePersona({ relationship: e.target.value })}><option>Ex-partner</option><option>Partner</option><option>Friend</option><option>Other</option></select></label></div>
@@ -299,14 +255,8 @@ export default function Home() {
       <label>Texting style<textarea rows={3} value={persona.style} onChange={e => updatePersona({ style: e.target.value })} placeholder="e.g. lowercase, short replies, uses 'ừ' and '=))'" /></label>
       <div className="cadence">
         <div className="cadence-head"><span>Reply cadence</span><b>{cadence}</b></div>
-        <div className="cadence-modes">
-          <button type="button" className={persona.cadenceMode === 'range' ? 'active' : ''} onClick={() => updatePersona({ cadenceMode: 'range' })}>Adjust range</button>
-          <button type="button" className={persona.cadenceMode === 'instant' ? 'active' : ''} onClick={() => updatePersona({ cadenceMode: 'instant' })}>Instant respond</button>
-        </div>
-        {persona.cadenceMode === 'range' && <>
-          <div className="range-wrap"><div className="range-track" /><div className="range-fill" style={{ left: `${Math.max(0, Math.min(100, ((persona.cadenceMin - 10) / 3590) * 100))}%`, right: `${Math.max(0, Math.min(100, 100 - ((persona.cadenceMax - 10) / 3590) * 100))}%` }} /><input aria-label="Minimum reply delay" type="range" min="10" max="3600" value={persona.cadenceMin} onChange={e => updatePersona({ cadenceMin: Math.min(Number(e.target.value), persona.cadenceMax) })} /><input aria-label="Maximum reply delay" type="range" min="10" max="3600" value={persona.cadenceMax} onChange={e => updatePersona({ cadenceMax: Math.max(Number(e.target.value), persona.cadenceMin) })} /></div>
-          <div className="range-values"><span>MIN <b>{formatDelay(persona.cadenceMin)}</b></span><span>MAX <b>{formatDelay(persona.cadenceMax)}</b></span></div>
-        </>}
+        <div className="cadence-modes"><button type="button" className={persona.cadenceMode === 'range' ? 'active' : ''} onClick={() => updatePersona({ cadenceMode: 'range' })}>Adjust range</button><button type="button" className={persona.cadenceMode === 'instant' ? 'active' : ''} onClick={() => updatePersona({ cadenceMode: 'instant' })}>Instant respond</button></div>
+        {persona.cadenceMode === 'range' && <><div className="range-wrap"><div className="range-track" /><div className="range-fill" style={{ left: `${Math.max(0, Math.min(100, ((persona.cadenceMin - 10) / 3590) * 100))}%`, right: `${Math.max(0, Math.min(100, 100 - ((persona.cadenceMax - 10) / 3590) * 100))}%` }} /><input aria-label="Minimum reply delay" type="range" min="10" max="3600" value={persona.cadenceMin} onChange={e => updatePersona({ cadenceMin: Math.min(Number(e.target.value), persona.cadenceMax) })} /><input aria-label="Maximum reply delay" type="range" min="10" max="3600" value={persona.cadenceMax} onChange={e => updatePersona({ cadenceMax: Math.max(Number(e.target.value), persona.cadenceMin) })} /></div><div className="range-values"><span>MIN <b>{formatDelay(persona.cadenceMin)}</b></span><span>MAX <b>{formatDelay(persona.cadenceMax)}</b></span></div></>}
         <small>{persona.cadenceMode === 'instant' ? 'Replies appear immediately.' : 'Replies are naturally randomized inside this window.'}</small>
       </div>
       {persona.id && <button type="button" className="delete-project" onClick={deleteProject}>Delete this project</button>}
@@ -314,7 +264,6 @@ export default function Home() {
       {error && <div className="error-box">{error}</div>}
       <div className="disclaimer">Simulation only · the bot is an AI reconstruction, not the actual person.</div>
     </aside>
-
     <section className="workspace">
       <header><div className="tabs"><button className={tab === 'persona' ? 'active' : ''} onClick={() => setTab('persona')}>Persona</button><button className={tab === 'chat' ? 'active' : ''} onClick={() => setTab('chat')}>Conversation</button></div><div className={`status ${analyzing || saving || loadingProject ? 'working' : analysisComplete ? 'ready' : ''}`}><span /> {analyzing ? 'Reading your conversation' : loadingProject ? 'Opening your project' : saving ? 'Saving your changes' : analysisComplete ? 'Your conversation is understood' : 'Echo is ready'}</div></header>
       {analyzing && <div className="analysis-banner"><div className="pulse" /><div><strong>Reading the conversation</strong><span>Finding patterns, tone, habits and the details that make them feel like them.</span></div></div>}
