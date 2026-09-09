@@ -17,8 +17,6 @@ export async function POST(req: Request) {
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const user = await getOrCreateUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!process.env.BLOB_READ_WRITE_TOKEN) return NextResponse.json({ error: 'Vercel Blob is not configured for this deployment.' }, { status: 500 });
-    if (!process.env.GEMINI_API_KEY) return NextResponse.json({ error: 'GEMINI_API_KEY is missing from the deployment.' }, { status: 500 });
 
     const google = createGoogleGenerativeAI({ apiKey: process.env.GEMINI_API_KEY });
     const body = await req.json();
@@ -27,6 +25,7 @@ export async function POST(req: Request) {
       : body.screenshotId ? [String(body.screenshotId)] : [];
     const persona = body.persona ?? {};
     if (!screenshotIds.length) return NextResponse.json({ error: 'At least one screenshotId is required.' }, { status: 400 });
+    if (!process.env.GEMINI_API_KEY) return NextResponse.json({ error: 'GEMINI_API_KEY is missing from the deployment.' }, { status: 500 });
 
     const db = getDb();
     const allScreenshots = await db.select().from(uploadedScreenshots).where(eq(uploadedScreenshots.userId, user.id));
@@ -100,6 +99,7 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error('Persona analysis error:', error);
-    return NextResponse.json({ error: error instanceof Error ? `Failed to analyze screenshots: ${error.message}` : 'Failed to analyze screenshots' }, { status: 500 });
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: `Failed to analyze screenshots: ${message}` }, { status: 500 });
   }
 }
