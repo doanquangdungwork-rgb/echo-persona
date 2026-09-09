@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
-import { personas } from '@/db/schema';
+import { personas, uploadedScreenshots } from '@/db/schema';
 import { getOrCreateUser } from '@/lib/current-user';
 
 function clamp(n: number, min: number, max: number) {
@@ -16,8 +16,12 @@ export async function GET() {
     const user = await getOrCreateUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const db = getDb();
-    const rows = await db.select().from(personas).where(eq(personas.userId, user.id)).orderBy(personas.updatedAt);
-    return NextResponse.json({ personas: rows.reverse() });
+    const rows = await db.select().from(personas).where(eq(personas.userId, user.id)).orderBy(desc(personas.updatedAt));
+    const withCounts = await Promise.all(rows.map(async persona => {
+      const screenshots = await db.select({ id: uploadedScreenshots.id }).from(uploadedScreenshots).where(eq(uploadedScreenshots.personaId, persona.id));
+      return { ...persona, screenshotCount: screenshots.length };
+    }));
+    return NextResponse.json({ personas: withCounts });
   } catch (error) {
     console.error('Load personas error:', error);
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Failed to load personas' }, { status: 500 });
