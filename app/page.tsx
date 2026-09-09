@@ -4,9 +4,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { SignInButton, UserButton, useUser } from '@clerk/nextjs';
 
 type Message = { id: string | number; role: 'user' | 'assistant'; text: string; time: string; delayed?: boolean };
-type Persona = any;
-type Project = any;
-type Screenshot = any;
+type Persona = { id?: string; name: string; gender: string; relationship: string; traits: string; style: string; cadenceMin: number; cadenceMax: number; cadenceMode: 'range' | 'instant'; analysis: any };
+type Project = Persona & { screenshotCount: number; replyMode?: 'range' | 'instant' };
+type Screenshot = { id: string; url: string; pathname: string; sizeBytes: number; createdAt: string };
 
 const defaults: Persona = { name: 'Alex', gender: 'Male', relationship: 'Ex-partner', traits: 'Warm, slightly teasing, thoughtful', style: 'Casual Vietnamese texting, short messages, lowercase sometimes, natural pauses', cadenceMin: 30, cadenceMax: 600, cadenceMode: 'range', analysis: null };
 
@@ -46,7 +46,7 @@ export default function Home() {
   const [hydrated, setHydrated] = useState(false);
   const [loadingProject, setLoadingProject] = useState(false);
   const saveTimer = useRef<number | null>(null);
-  const conversationIdRef = useRef<string>();
+  const conversationIdRef = useRef<string | undefined>(undefined);
   const outgoingBufferRef = useRef<string[]>([]);
   const flushTimerRef = useRef<number | null>(null);
   const chatQueueRef = useRef<Promise<void>>(Promise.resolve());
