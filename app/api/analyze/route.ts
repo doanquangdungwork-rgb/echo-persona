@@ -48,9 +48,8 @@ export async function POST(req: Request) {
     }
 
     const result = await generateText({
-      model: google(process.env.GEMINI_MODEL || 'gemini-2.5-flash'),
+      model: google(process.env.GEMINI_MODEL || 'gemini-3.6-flash'),
       messages: [{ role: 'user', content }],
-      temperature: 0.2,
       maxOutputTokens: 1800,
     });
 
