@@ -4,7 +4,7 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { auth } from '@clerk/nextjs/server';
 import { and, asc, eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
-import { conversations, messages, personas, scheduledMessages } from '@/db/schema';
+import { conversations, messages, personas, personaMemories, scheduledMessages } from '@/db/schema';
 import { getOrCreateUser } from '@/lib/current-user';
 
 function clamp(n: number, min: number, max: number) { return Math.min(max, Math.max(min, n)); }
@@ -37,6 +37,7 @@ export async function POST(req: Request) {
         textingStyle: String(p.style || activePersona.textingStyle),
         replyMin: clamp(Number(p.cadenceMin) || activePersona.replyMin, 10, 3600),
         replyMax: Math.max(clamp(Number(p.cadenceMax) || activePersona.replyMax, 10, 3600), clamp(Number(p.cadenceMin) || activePersona.replyMin, 10, 3600)),
+        replyMode: p.cadenceMode === 'instant' ? 'instant' : 'range',
         updatedAt: new Date(),
       }).where(and(eq(personas.id, activePersona.id), eq(personas.userId, user.id))).returning();
     } else {
@@ -51,6 +52,7 @@ export async function POST(req: Request) {
         textingStyle: String(p.style || ''),
         replyMin: min,
         replyMax: max,
+        replyMode: p.cadenceMode === 'instant' ? 'instant' : 'range',
         dna: p.analysis ? { analysis: p.analysis } : null,
       }).returning();
     }
@@ -64,25 +66,89 @@ export async function POST(req: Request) {
       conversationId = conversation.id;
     }
 
-    const historyRows = await db.select().from(messages).where(eq(messages.conversationId, conversationId)).orderBy(asc(messages.createdAt));
-    const pendingRows = await db.select().from(scheduledMessages).where(and(eq(scheduledMessages.conversationId, conversationId), eq(scheduledMessages.status, 'pending'))).orderBy(asc(scheduledMessages.scheduledAt));
-    const history = [...historyRows.slice(-24).map(m => ({ role: m.role === 'assistant' ? 'assistant' as const : 'user' as const, content: m.content })), ...pendingRows.map(m => ({ role: 'assistant' as const, content: m.reply }))];
+    const [memoryRows, historyRows, pendingRows] = await Promise.all([
+      db.select().from(personaMemories).where(eq(personaMemories.personaId, activePersona.id)).orderBy(asc(personaMemories.importance), asc(personaMemories.createdAt)),
+      db.select().from(messages).where(eq(messages.conversationId, conversationId)).orderBy(asc(messages.createdAt)),
+      db.select().from(scheduledMessages).where(and(eq(scheduledMessages.conversationId, conversationId), eq(scheduledMessages.status, 'pending'))).orderBy(asc(scheduledMessages.scheduledAt)),
+    ]);
+
+    const history = [
+      ...historyRows.slice(-80).map(m => ({ role: m.role === 'assistant' ? 'assistant' as const : 'user' as const, content: m.content })),
+      ...pendingRows.map(m => ({ role: 'assistant' as const, content: m.reply })),
+    ];
+    const memories = memoryRows.slice(-40).map(m => `- ${m.memory}`).join('\n') || 'No durable memories learned yet.';
     const dna = activePersona.dna ? JSON.stringify(activePersona.dna) : 'No extracted DNA yet.';
 
-    const system = `You are Echo, a clearly labeled AI simulation based on user-provided persona controls and conversation evidence. Never claim to be the real person. Recreate observable communication behavior, not identity.\n\nPERSONA CONTROLS (user-provided and authoritative):\n- Name: ${activePersona.name}\n- Gender: ${activePersona.gender}\n- Relationship: ${activePersona.relationship}\n- Personality: ${activePersona.personality}\n- Texting style: ${activePersona.textingStyle}\n\nOBSERVED PERSONA DNA (evidence from screenshots):\n${dna}\n\nRESPONSE PRIORITY:\n1. Follow the user's explicit persona controls.\n2. Follow observed DNA and repeated conversation patterns.\n3. Use recent conversation context.\n4. Only then use general language fluency.\n\nRules:\n- Reply in the same language as the latest user message unless the persona evidence clearly shows otherwise.\n- Treat the persona name as the simulated person's identity label inside this simulation; do not turn it into a third person when context indicates the user is talking to the persona.\n- Match casing, punctuation, slang, emoji habits, message length, line breaks and emotional temperature.\n- Respect the requested personality and relationship. If the persona is terse, stay terse. If the persona uses lowercase or slang, use it naturally.\n- Do not over-explain, therapize, moralize, or sound like an assistant.\n- Do not invent biographical facts that are not in the provided context.\n- Output only the simulated person's message, with no labels or explanations.`;
+    const system = `You are Echo, a clearly labeled AI simulation based on user-provided persona controls, screenshot evidence, conversation history, and learned memories. Never claim to be the real person. Recreate observable communication behavior, not identity.
+
+PERSONA CONTROLS (authoritative):
+- Name: ${activePersona.name}
+- Gender: ${activePersona.gender}
+- Relationship: ${activePersona.relationship}
+- Personality: ${activePersona.personality}
+- Texting style: ${activePersona.textingStyle}
+
+OBSERVED PERSONA DNA:
+${dna}
+
+DURABLE MEMORIES LEARNED FROM THIS CONVERSATION:
+${memories}
+
+RESPONSE PRIORITY:
+1. Explicit persona controls.
+2. Durable memories and facts established in conversation.
+3. Observed DNA and repeated patterns from screenshots.
+4. Recent conversation context, including messages that are still waiting to be delivered.
+5. General language fluency.
+
+TEXTING BEHAVIOR:
+- Reply in the same language as the latest user message unless evidence clearly shows otherwise.
+- Match casing, punctuation, slang, emoji habits, message length, line breaks and emotional temperature.
+- Do not answer every user message mechanically one-for-one. Read the whole recent exchange and respond to what naturally deserves a response.
+- The person can send multiple short texts in one turn. When natural, output 2–4 short message bubbles separated by a blank line. Do not number them and do not force one reply per user message.
+- A multi-message reply can react to several points, continue a thought, correct itself, add an afterthought, or simply feel like normal texting. It does not need to mirror the number or order of the user's messages.
+- If the persona is terse, keep it terse. If they pause, tease, soften, use slang, lowercase or fragments, reproduce that naturally.
+- Do not over-explain, therapize, moralize, or sound like an assistant.
+- Do not invent biographical facts. When a fact has been explicitly established in the conversation, keep it consistent later.
+- Output only the simulated person's message(s), with no labels or explanations.`;
 
     const result = await generateText({
       model: google(process.env.GEMINI_MODEL || 'gemini-3.6-flash'),
       system,
       messages: [...history, { role: 'user', content: text }],
-      maxOutputTokens: 250,
+      maxOutputTokens: 350,
     });
 
     const reply = result.text?.trim() || '…';
+
+    await db.insert(messages).values({ conversationId, role: 'user', content: text });
+
+    // Extract only durable facts explicitly established by the exchange.
+    // These are stored separately so they survive beyond the recent-message window.
+    try {
+      const memoryResult = await generateText({
+        model: google(process.env.GEMINI_MODEL || 'gemini-3.6-flash'),
+        system: `Extract durable facts about the simulated person from the conversation below. Only keep facts that are explicitly stated or clearly established, such as job, study, city, family, preferences, recurring plans, or relationship facts. Do not infer personality. Return zero or more short facts, one per line, with no bullets, numbering, commentary, or headings. If there are no durable facts, return NONE.`,
+        messages: [...history.slice(-40), { role: 'user', content: text }, { role: 'assistant', content: reply }],
+        maxOutputTokens: 180,
+      });
+      const extracted = memoryResult.text?.trim() || '';
+      if (extracted && extracted !== 'NONE') {
+        const existing = memoryRows.map(m => m.memory.toLowerCase());
+        for (const raw of extracted.split('\n').map(x => x.trim()).filter(Boolean).slice(0, 5)) {
+          const memory = raw.replace(/^[-*•]\s*/, '').trim();
+          if (memory.length >= 4 && !existing.includes(memory.toLowerCase())) {
+            await db.insert(personaMemories).values({ personaId: activePersona.id, memory, importance: 2 });
+          }
+        }
+      }
+    } catch (memoryError) {
+      console.warn('Memory extraction skipped:', memoryError);
+    }
+
     const minSec = clamp(activePersona.replyMin, 10, 3600);
     const maxSec = Math.max(minSec, clamp(activePersona.replyMax, 10, 3600));
-    const delayMs = Math.floor((minSec + Math.random() * (maxSec - minSec)) * 1000);
-    await db.insert(messages).values({ conversationId, role: 'user', content: text });
+    const delayMs = activePersona.replyMode === 'instant' ? 0 : Math.floor((minSec + Math.random() * (maxSec - minSec)) * 1000);
     const scheduledAt = new Date(Date.now() + delayMs);
     const [scheduled] = await db.insert(scheduledMessages).values({ userId: user.id, conversationId, reply, scheduledAt }).returning();
     await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, conversationId));
