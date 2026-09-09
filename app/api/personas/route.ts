@@ -44,6 +44,7 @@ export async function POST(req: Request) {
       textingStyle: String(p.style || p.textingStyle || ''),
       replyMin: min,
       replyMax: max,
+      replyMode: p.cadenceMode === 'instant' ? 'instant' : 'range',
       updatedAt: new Date(),
     };
 
