@@ -30,9 +30,10 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [conversationId, setConversationId] = useState<string>();
-  const [busy, setBusy] = useState(false);
+  const [pendingReplies, setPendingReplies] = useState(0);
   const [analyzing, setAnalyzing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [analysisComplete, setAnalysisComplete] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [tab, setTab] = useState<'persona' | 'chat'>('persona');
@@ -90,6 +91,7 @@ export default function Home() {
     previews.forEach(url => URL.revokeObjectURL(url));
     setFiles(next);
     setPreviews(next.map(file => URL.createObjectURL(file)));
+    setAnalysisComplete(false);
     setError(next.length < incoming.length ? 'Only image files are supported. Maximum 20 screenshots.' : '');
   }
 
@@ -99,6 +101,7 @@ export default function Home() {
     URL.revokeObjectURL(previews[index]);
     setFiles(nextFiles);
     setPreviews(nextPreviews);
+    setAnalysisComplete(false);
   }
 
   async function savePersonaNow() {
@@ -109,11 +112,10 @@ export default function Home() {
 
   async function analyze() {
     if (!files.length || analyzing) return;
-    setAnalyzing(true); setError('');
+    setAnalyzing(true); setAnalysisComplete(false); setError('');
     try {
       const currentPersona = persona.id ? persona : { ...(await savePersonaNow()), analysis: persona.analysis, traits: persona.traits, style: persona.style, cadenceMin: persona.cadenceMin, cadenceMax: persona.cadenceMax, cadenceMode: persona.cadenceMode } as Persona;
       if (!persona.id && currentPersona.id) setPersona(p => ({ ...p, id: currentPersona.id }));
-
       const form = new FormData();
       files.forEach(file => form.append('files', file));
       const uploaded = await readJson(await fetch('/api/uploads', { method: 'POST', body: form }));
@@ -124,6 +126,7 @@ export default function Home() {
       previews.forEach(url => URL.revokeObjectURL(url));
       setPreviews([]);
       setSaved(true);
+      setAnalysisComplete(true);
       setTab('persona');
     } catch (e: any) {
       setError(e?.message || 'Could not analyze the screenshots.');
@@ -131,22 +134,24 @@ export default function Home() {
   }
 
   async function send() {
-    if (!input.trim() || busy) return;
-    const text = input.trim(); setInput(''); setError('');
-    setMessages(m => [...m, { id: `local-${Date.now()}`, role: 'user', text, time: 'now' }]);
-    setBusy(true);
+    const text = input.trim();
+    if (!text) return;
+    setInput(''); setError('');
+    setMessages(m => [...m, { id: `local-${Date.now()}-${Math.random()}`, role: 'user', text, time: 'now' }]);
+    setPendingReplies(n => n + 1);
     try {
       const d = await readJson(await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text, persona, conversationId }) }));
       setConversationId(d.conversationId);
       setPersona(p => ({ ...p, id: d.personaId }));
-      const delay = d.delayMs || 900;
+      const delay = d.delayMs || 0;
       window.setTimeout(() => {
-        setMessages(m => [...m, { id: `assistant-${Date.now()}`, role: 'assistant', text: d.reply, time: 'just now', delayed: delay > 0 }]);
-        setBusy(false);
+        setMessages(m => [...m, { id: `assistant-${Date.now()}-${Math.random()}`, role: 'assistant', text: d.reply, time: 'just now', delayed: delay > 0 }]);
+        setPendingReplies(n => Math.max(0, n - 1));
       }, delay);
     } catch (e: any) {
       setMessages(m => [...m, { id: `error-${Date.now()}`, role: 'assistant', text: e?.message || 'Something went wrong.', time: 'now' }]);
-      setBusy(false); setError(e?.message || 'Could not connect to the backend.');
+      setPendingReplies(n => Math.max(0, n - 1));
+      setError(e?.message || 'Could not connect to the backend.');
     }
   }
 
@@ -167,6 +172,7 @@ export default function Home() {
           <div className="file-previews">{previews.map((src, i) => <div className="file-preview" key={src}><img src={src} alt="" /><button type="button" onClick={() => removeFile(i)}>×</button></div>)}</div>
         </>}
         <button className="ghost" disabled={!files.length || analyzing} onClick={analyze}>{analyzing ? 'Interpreting your conversation…' : files.length ? `Interpret ${files.length} screenshot${files.length > 1 ? 's' : ''}` : 'Choose screenshots'}</button>
+        {analysisComplete && !analyzing && <div className="interpret-done"><span>✓</span><div><b>Conversation interpreted</b><small>Echo is ready to talk.</small></div></div>}
       </div>
       <div className="divider" />
       <label>Name<input value={persona.name} onChange={e => updatePersona({ name: e.target.value })} /></label>
@@ -190,10 +196,11 @@ export default function Home() {
       <div className="disclaimer">Simulation only · the bot is an AI reconstruction, not the actual person.</div>
     </aside>
     <section className="workspace">
-      <header><div className="tabs"><button className={tab === 'persona' ? 'active' : ''} onClick={() => setTab('persona')}>Persona</button><button className={tab === 'chat' ? 'active' : ''} onClick={() => setTab('chat')}>Conversation</button></div><div className={`status ${analyzing || saving ? 'working' : ''}`}><span /> {analyzing ? 'Reading your conversation' : saving ? 'Saving your changes' : 'Echo is ready'}</div></header>
+      <header><div className="tabs"><button className={tab === 'persona' ? 'active' : ''} onClick={() => setTab('persona')}>Persona</button><button className={tab === 'chat' ? 'active' : ''} onClick={() => setTab('chat')}>Conversation</button></div><div className={`status ${analyzing || saving ? 'working' : analysisComplete ? 'ready' : ''}`}><span /> {analyzing ? 'Reading your conversation' : saving ? 'Saving your changes' : analysisComplete ? 'Your conversation is understood' : 'Echo is ready'}</div></header>
       {analyzing && <div className="analysis-banner"><div className="pulse" /><div><strong>Reading the conversation</strong><span>Finding patterns, tone, habits and the details that make them feel like them.</span></div></div>}
-      {tab === 'persona' ? <div className="intro"><div className="eyebrow">01 / PERSONA</div><h1>Some people leave<br /><i>a rhythm behind.</i></h1><p>Echo turns the traces in your conversations into a living communication pattern. Not just what they say, but how they pause, react, soften, tease and remember.</p><div className="quote-card"><span>THE SIGNAL</span><p>“It should feel like a person you know — not an assistant answering you.”</p></div><div className="preview-card"><div className="avatar">{persona.name[0]?.toUpperCase()}</div><div><b>{persona.name}</b><span>{persona.relationship} · {persona.gender}</span></div><em>{cadence}</em></div><button className="primary" onClick={() => setTab('chat')}>Enter the conversation <span>→</span></button></div> : <div className="chat-shell"><div className="chat-head"><div className="avatar">{persona.name[0]?.toUpperCase()}</div><div><b>{persona.name}</b><span>AI reconstruction · {persona.relationship}</span></div><div className="cadence-pill">{persona.cadenceMode === 'instant' ? 'instant' : `reply rhythm · ${cadence}`}</div></div><div className="messages">{messages.length === 0 && <div className="empty-chat"><strong>Say something you would normally say.</strong><span>Echo will learn from the conversation as you go.</span></div>}{messages.map(m => <div key={m.id} className={'message ' + m.role}><div className="bubble">{m.text}</div><span>{m.time}{m.delayed ? ' · delayed' : ''}</span></div>)}{busy && <div className="message assistant"><div className="typing"><i /><i /><i /></div><span>finding the right words</span></div>}</div><div className="composer"><textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="say something…" /><button onClick={send} disabled={busy || !input.trim()}>↑</button><small>Enter to send · Shift + Enter for a new line</small></div></div>}
+      {tab === 'persona' ? <div className="intro"><div className="eyebrow">01 / PERSONA</div><h1>Some people leave<br /><i>a rhythm behind.</i></h1><p>Echo turns the traces in your conversations into a living communication pattern. Not just what they say, but how they pause, react, soften, tease and remember.</p><div className="quote-card"><span>THE SIGNAL</span><p>“It should feel like a person you know — not an assistant answering you.”</p></div><div className="preview-card"><div className="avatar">{persona.name[0]?.toUpperCase()}</div><div><b>{persona.name}</b><span>{persona.relationship} · {persona.gender}</span></div><em>{cadence}</em></div><button className="primary" onClick={() => setTab('chat')}>Enter the conversation <span>→</span></button></div> : <div className="chat-shell"><div className="chat-head"><div className="avatar">{persona.name[0]?.toUpperCase()}</div><div><b>{persona.name}</b><span>AI reconstruction · {persona.relationship}</span></div><div className="cadence-pill">{persona.cadenceMode === 'instant' ? 'instant' : `reply rhythm · ${cadence}`}</div></div><div className="messages">{messages.length === 0 && <div className="empty-chat"><strong>Say something you would normally say.</strong><span>Echo learns from the conversation as you go.</span></div>}{messages.map(m => <div key={m.id} className={'message ' + m.role}>{(m.role === 'assistant' ? m.text.split(/\n\s*\n/).filter(Boolean) : [m.text]).map((part, i) => <div className="bubble" key={`${m.id}-${i}`}>{part}</div>)}<span>{m.time}{m.delayed ? ' · delayed' : ''}</span></div>)}{pendingReplies > 0 && <div className="message assistant"><div className="typing"><i /><i /><i /></div><span>finding the right rhythm</span></div>}</div><div className="composer"><textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="say something…" /><button onClick={send} disabled={!input.trim()}>↑</button><small>Enter to send · you can send several messages before they reply</small></div></div>}
     </section>
+    <div className="corner-status">{analyzing ? <><i className="spinner" /> Interpreting conversation…</> : saving ? <><i className="spinner" /> Saving persona…</> : analysisComplete ? <><i className="check-dot">✓</i> Persona ready</> : saved ? <><i className="check-dot">✓</i> Synced</> : null}</div>
     <div className="account"><UserButton /></div>
   </main>;
 }
