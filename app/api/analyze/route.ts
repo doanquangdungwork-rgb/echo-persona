@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { generateText } from 'ai';
-import { openai } from '@ai-sdk/openai';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { auth } from '@clerk/nextjs/server';
 import { and, eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
@@ -18,8 +18,9 @@ export async function POST(req: Request) {
     const user = await getOrCreateUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     if (!process.env.BLOB_READ_WRITE_TOKEN) return NextResponse.json({ error: 'Vercel Blob is not configured for this deployment.' }, { status: 500 });
-    if (!process.env.OPENAI_API_KEY) return NextResponse.json({ error: 'OPENAI_API_KEY is missing from the deployment.' }, { status: 500 });
+    if (!process.env.GEMINI_API_KEY) return NextResponse.json({ error: 'GEMINI_API_KEY is missing from the deployment.' }, { status: 500 });
 
+    const google = createGoogleGenerativeAI({ apiKey: process.env.GEMINI_API_KEY });
     const body = await req.json();
     const screenshotIds: string[] = Array.isArray(body.screenshotIds)
       ? body.screenshotIds.map((id: unknown) => String(id)).filter(Boolean).slice(0, MAX_FILES)
@@ -47,7 +48,7 @@ export async function POST(req: Request) {
     }
 
     const result = await generateText({
-      model: openai(process.env.OPENAI_MODEL || 'gpt-5.4-mini'),
+      model: google(process.env.GEMINI_MODEL || 'gemini-2.5-flash'),
       messages: [{ role: 'user', content }],
       temperature: 0.2,
       maxOutputTokens: 1800,
