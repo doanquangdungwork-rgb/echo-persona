@@ -18,11 +18,6 @@ export async function POST(req: Request) {
     const user = await getOrCreateUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      console.error('BLOB_READ_WRITE_TOKEN is missing');
-      return NextResponse.json({ error: 'Vercel Blob is not configured for this deployment.' }, { status: 500 });
-    }
-
     const form = await req.formData();
     const files = form.getAll('files').filter((value): value is File => value instanceof File);
     const legacyFile = form.get('file');
