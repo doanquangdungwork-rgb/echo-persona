@@ -21,8 +21,8 @@ export async function POST(req: Request) {
     if (!process.env.OPENAI_API_KEY) return NextResponse.json({ error: 'OPENAI_API_KEY is missing from the deployment.' }, { status: 500 });
 
     const body = await req.json();
-    const screenshotIds = Array.isArray(body.screenshotIds)
-      ? body.screenshotIds.map(String).filter(Boolean).slice(0, MAX_FILES)
+    const screenshotIds: string[] = Array.isArray(body.screenshotIds)
+      ? body.screenshotIds.map((id: unknown) => String(id)).filter(Boolean).slice(0, MAX_FILES)
       : body.screenshotId ? [String(body.screenshotId)] : [];
     const persona = body.persona ?? {};
     if (!screenshotIds.length) return NextResponse.json({ error: 'At least one screenshotId is required.' }, { status: 400 });
