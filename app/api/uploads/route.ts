@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { put } from '@vercel/blob';
 import { auth } from '@clerk/nextjs/server';
+import { and, eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
-import { uploadedScreenshots } from '@/db/schema';
+import { personas, uploadedScreenshots } from '@/db/schema';
 import { getOrCreateUser } from '@/lib/current-user';
 
 export const runtime = 'nodejs';
@@ -22,12 +23,19 @@ export async function POST(req: Request) {
     const files = form.getAll('files').filter((value): value is File => value instanceof File);
     const legacyFile = form.get('file');
     const selectedFiles = files.length ? files : legacyFile instanceof File ? [legacyFile] : [];
+    const personaId = String(form.get('personaId') || '').trim();
 
     if (!selectedFiles.length) {
       return NextResponse.json({ error: 'At least one image file is required.' }, { status: 400 });
     }
     if (selectedFiles.length > MAX_FILES) {
       return NextResponse.json({ error: `You can upload up to ${MAX_FILES} screenshots at once.` }, { status: 400 });
+    }
+
+    const db = getDb();
+    if (personaId) {
+      const [persona] = await db.select({ id: personas.id }).from(personas).where(and(eq(personas.id, personaId), eq(personas.userId, user.id))).limit(1);
+      if (!persona) return NextResponse.json({ error: 'Project not found.' }, { status: 404 });
     }
 
     for (const file of selectedFiles) {
@@ -39,9 +47,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const db = getDb();
     const uploaded: Array<{ screenshotId: string; pathname: string }> = [];
-
     for (const file of selectedFiles) {
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
       const pathname = `users/${user.id}/screenshots/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeName}`;
@@ -49,6 +55,7 @@ export async function POST(req: Request) {
 
       const [record] = await db.insert(uploadedScreenshots).values({
         userId: user.id,
+        personaId: personaId || null,
         pathname: blob.pathname,
         contentType: file.type,
         sizeBytes: file.size,
