@@ -4,7 +4,7 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { auth } from '@clerk/nextjs/server';
 import { and, eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
-import { personaMemories, personas, uploadedScreenshots } from '@/db/schema';
+import { personas, uploadedScreenshots } from '@/db/schema';
 import { get } from '@vercel/blob';
 import { getOrCreateUser } from '@/lib/current-user';
 
@@ -36,8 +36,8 @@ export async function POST(req: Request) {
     }
 
     const allScreenshots = await db.select().from(uploadedScreenshots).where(eq(uploadedScreenshots.userId, user.id));
-    // A project is the complete evidence set. Re-analysis therefore uses every screenshot
-    // currently attached to the project, so adding/removing evidence actually changes the model.
+    // The screenshots attached to a project are its complete evidence set.
+    // Re-analysis replaces the previous visual DNA, so deleted evidence cannot keep influencing replies.
     let selected = personaId
       ? allScreenshots.filter(s => s.personaId === personaId)
       : requestedIds.map(id => allScreenshots.find(s => s.id === id)).filter(Boolean) as typeof allScreenshots;
@@ -67,7 +67,7 @@ CRITICAL ANALYSIS RULES:
 - Measure message length, number of bubbles per turn, sentence fragments, lowercase/capitalization, punctuation, spacing, typos, abbreviations, slang, emoji frequency/type, repeated particles and signature phrases.
 - Infer conversational rhythm from the actual sequence: whether they answer immediately, answer one point first, leave a point unanswered, add an afterthought, or split one thought across several bubbles.
 - Do not make the persona more articulate, complete, polite, enthusiastic, emotional, or grammatically correct than the evidence.
-- Manual persona inputs are authoritative for identity/context. Do not overwrite them with guesses.
+- Manual persona inputs are authoritative for identity/context and should be preserved.
 
 Return strict JSON with exactly these keys:
 observations: concise array of concrete observations
@@ -76,7 +76,6 @@ negative_patterns: array of things the target generally avoids doing
 signature_patterns: array of recurring words, particles, punctuation or stylistic habits
 response_dynamics: object with keys opening, acknowledgement, questions, affection, teasing, conflict, comfort, topic_shift, endings, bubble_structure
 message_profile: object with keys typical_length, short_reply_length, long_reply_length, line_breaks, casing, punctuation, emoji, slang, typo_style, repetition
-conversation_facts: array of durable facts explicitly stated in the screenshots (job, study, city, preferences, plans, family, etc.)
 dna: object containing language, casing, punctuation, message_length, slang, emoji, repeated_phrases, cadence, directness, humor, affection, questions, conflict_style, comfort_style, opening_style, acknowledgement_style, follow_up_style, bubble_structure, negative_patterns, signature_patterns
 
 Never infer protected/sensitive traits. Never guess gender from appearance or name.`,
@@ -108,8 +107,8 @@ Never infer protected/sensitive traits. Never guess gender from appearance or na
 
     const min = Math.max(10, Number(persona?.cadenceMin) || existingPersona?.replyMin || 30);
     const max = Math.max(min, Number(persona?.cadenceMax) || existingPersona?.replyMax || 600);
-    const mergedDna = {
-      ...(existingPersona?.dna && typeof existingPersona.dna === 'object' ? existingPersona.dna : {}),
+    // Replace visual DNA on every interpretation. This makes the project evidence set authoritative.
+    const freshDna = {
       ...(analysis.dna || {}),
       observations: analysis.observations || [],
       stable_patterns: analysis.stable_patterns || [],
@@ -128,7 +127,7 @@ Never infer protected/sensitive traits. Never guess gender from appearance or na
       replyMin: min,
       replyMax: max,
       replyMode: existingPersona?.replyMode || 'range',
-      dna: mergedDna,
+      dna: freshDna,
       updatedAt: new Date(),
     };
 
@@ -142,18 +141,6 @@ Never infer protected/sensitive traits. Never guess gender from appearance or na
 
     await Promise.all(selected.map(s => db.update(uploadedScreenshots).set({ personaId: resolvedPersonaId }).where(and(eq(uploadedScreenshots.id, s.id), eq(uploadedScreenshots.userId, user.id)))));
 
-    // Persist durable facts learned from the imported archive, not just from live chat.
-    const existingMemoryRows = await db.select().from(personaMemories).where(eq(personaMemories.personaId, resolvedPersonaId));
-    const existingMemories = new Set(existingMemoryRows.map(m => m.memory.toLowerCase()));
-    const facts = Array.isArray(analysis.conversation_facts) ? analysis.conversation_facts : [];
-    for (const raw of facts.slice(0, 15)) {
-      const memory = String(raw || '').replace(/^[-*•]\s*/, '').trim();
-      if (memory.length >= 4 && !existingMemories.has(memory.toLowerCase())) {
-        await db.insert(personaMemories).values({ personaId: resolvedPersonaId, memory, importance: 3 });
-        existingMemories.add(memory.toLowerCase());
-      }
-    }
-
     return NextResponse.json({
       persona: {
         id: resolvedPersonaId,
@@ -165,7 +152,7 @@ Never infer protected/sensitive traits. Never guess gender from appearance or na
         cadenceMin: base.replyMin,
         cadenceMax: base.replyMax,
         cadenceMode: base.replyMode,
-        analysis: mergedDna,
+        analysis: freshDna,
       },
       screenshotIds: selected.map(s => s.id),
     });
