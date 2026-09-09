@@ -18,6 +18,7 @@ export const personas = pgTable('personas', {
   textingStyle: text('texting_style').notNull(),
   replyMin: integer('reply_min').notNull().default(30),
   replyMax: integer('reply_max').notNull().default(600),
+  replyMode: text('reply_mode').notNull().default('range'),
   dna: jsonb('dna'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
